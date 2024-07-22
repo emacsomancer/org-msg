@@ -28,6 +28,8 @@
 ;; Mail User Agent Mode to compose and reply to emails in a HTML
 ;; friendly style.
 
+;; This is the altered ("org-msg hacks") interim version.
+
 ;;; Code:
 
 (require 'cl-lib)
@@ -453,12 +455,12 @@ during email generation where '&apos;' is turned into
 
 (defun org-msg-xml-to-str (xml)
   "Convert the XML tree into a HTML string."
-  (cond ((and (listp xml) (equal xml '(p nil " ")))
+  (cond ((and (listp xml) (equal xml '(p nil " ")))
 	 "<o:p>&nbsp;</o:p>")
 	((and (listp xml) (equal xml '(p nil)))
 	 "<o:p>\n</o:p>")
 	((stringp xml)
-	 (replace-regexp-in-string " " "&nbsp;"
+	 (replace-regexp-in-string " " "&nbsp;"
 				   (org-msg-xml-escape-string xml)))
 	((eq (car xml) 'comment)
 	 (format "<!--%s-->" (caddr xml)))
@@ -606,9 +608,9 @@ is the XML tree and CSS the style."
 	(if (and (stringp (car e))
 		 (eq (cl-caadr e) 'br)
 		 (and (stringp (caddr e))
-		      (string-prefix-p "\n " (caddr e))))
+		      (string-prefix-p "\n " (caddr e))))
 	    (progn
-	      (setcar e (replace-regexp-in-string "\n +" " "
+	      (setcar e (replace-regexp-in-string "\n +" " "
 						  (concat (car e) (cl-caddr e))))
 	      (setcdr e (cl-cdddr e)))
 	  (setf e (cdr e)))))
@@ -1218,9 +1220,10 @@ MML tags."
 	  ;; Preserve the buffer-local value of user-mail-address to
 	  ;; ensure that message IDs generated from it will be using a
 	  ;; domain name that matches the sender.
-	  (let ((address user-mail-address))
+	  ;; (let ((address user-mail-address))
 	    (org-msg-edit-mode)
-	    (setq-local user-mail-address address)))
+	    ;; (setq-local user-mail-address address))
+	)
 	(set-buffer-modified-p nil)))))
 
 (defun org-msg-post-setup--if-not-reply (&rest args)
@@ -1486,38 +1489,51 @@ HTML emails."
 	  nil)))
   "Additional expressions to highlight in OrgMsg mode.")
 
+(defun org-msg--mu4e-fun (name)
+  "Attempt to find the existing mu4e function suffixed with NAME."
+  (let ((funs (mapcar (lambda (prefix) (intern (concat prefix name)))
+		      '("mu4e~" "mu4e-" "mu4e--"))))
+    (car (cl-member-if #'fboundp funs))))
+
+(defun org-msg--mu4e-fun-call (name)
+  "Call the mu4e function suffixed with NAME if any."
+  (when-let ((fun (org-msg--mu4e-fun name)))
+    (funcall fun)))
+
 (defun org-msg-edit-mode-mu4e ()
   "Setup mu4e faces, addresses completion and run mu4e."
-  (mu4e~compose-remap-faces)
+  (org-msg--mu4e-fun-call "compose-remap-faces")
   (unless (mu4e-running-p)
-    (if (fboundp #'mu4e~start) (mu4e~start) (mu4e--start)))
+    (org-msg--mu4e-fun-call "start"))
   (when mu4e-compose-complete-addresses
-    (mu4e~compose-setup-completion))
+    (org-msg--mu4e-fun-call "compose-setup-completion"))
   ;; the following code is verbatim from mu4e-compose.el, `mu4e-compose-mode'
   ;; this will setup fcc (saving sent messages) and handle flags
   ;; (e.g. replied to)
   (add-hook 'message-send-hook
-	    (if (functionp #'mu4e~setup-fcc-message-sent-hook-fn)
-		#'mu4e~setup-fcc-message-sent-hook-fn
+	    (if-let ((fun (org-msg--mu4e-fun "setup-fcc-message-sent-hook-fn")))
+		fun
 	      (lambda ()
 		;; when in-reply-to was removed, remove references as well.
-		(when (eq mu4e-compose-type 'reply)
-		  (mu4e~remove-refs-maybe))
+	;;	(when (eq mu4e-compose-type 'reply)
+	;;	  (mu4e~remove-refs-maybe))
 		(when use-hard-newlines
-		  (mu4e-send-harden-newlines))
+		  (org-msg--mu4e-fun-call "send-harden-newlines"))
 		;; for safety, always save the draft before sending
 		(set-buffer-modified-p t)
 		(save-buffer)
-		(mu4e~compose-setup-fcc-maybe)
+		(org-msg--mu4e-fun-call "compose-setup-fcc-maybe")
 		(widen)))
 	    nil t)
   ;; when the message has been sent.
   (add-hook 'message-sent-hook
-	    (if (functionp #'mu4e~set-sent-handler-message-sent-hook-fn)
-		#'mu4e~set-sent-handler-message-sent-hook-fn
+	    (if-let ((fun (org-msg--mu4e-fun
+			   "set-sent-handler-message-sent-hook-fn")))
+		fun
 	      (lambda ()
 		(setq mu4e-sent-func 'mu4e-sent-handler)
-		(mu4e~proc-sent (buffer-file-name))))
+	;; DRAL	(mu4e~proc-sent (buffer-file-name))
+		))
 	    nil t))
 
 (defalias 'org-msg-edit-kill-buffer-mu4e 'mu4e-message-kill-buffer)
@@ -1557,7 +1573,7 @@ Type \\[org-msg-attach] to call the dispatcher for attachment
 \\{org-msg-edit-mode-map}"
   (setq-local message-sent-message-via nil)
   (add-hook 'message-send-hook 'org-msg-prepare-to-send nil t)
-  (add-hook 'message-sent-hook 'undo t t)
+  ;; (add-hook 'message-sent-hook 'undo t t)
   (add-hook 'completion-at-point-functions 'message-completion-function nil t)
   (cond ((message-mail-alias-type-p 'abbrev) (mail-abbrevs-setup))
 	((message-mail-alias-type-p 'ecomplete) (ecomplete-setup)))
